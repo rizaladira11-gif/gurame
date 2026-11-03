@@ -2,555 +2,440 @@
 import streamlit as st
 import pandas as pd
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# ==========================================
+# =====================================================
 # KONFIGURASI HALAMAN
-# ==========================================
+# =====================================================
 
 st.set_page_config(
-    page_title="Dashboard Mikro",
+    page_title="Dashboard Amandira & Asira Mikro",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 Dashboard Monitoring Produk Mikro")
-st.caption("Data Amandira Mikro dan Asira Mikro")
+st.title("📊 Dashboard Amandira Mikro & Asira Mikro")
+st.caption("Dashboard monitoring polis, premi, dan reward seller")
 
-# ==========================================
-# SIDEBAR - UPLOAD DATA
-# ==========================================
 
-st.sidebar.header("Upload Data")
+# =====================================================
+# KONSTANTA
+# =====================================================
 
-uploaded_files = st.sidebar.file_uploader(
-    "Upload file Excel / CSV",
-    type=["xlsx", "xls", "csv"],
-    accept_multiple_files=True
+KOLOM = [
+    'REGIONAL',
+    'KODE_CABANG',
+    'NAMA_CABANG',
+    'NAMA_PRODUK',
+    'NILAI_PRODUK',
+    'TANGGAL_BAYAR',
+    'ID_SELLER',
+    'NAMA_SELLER',
+    'SATELIT',
+    'KODE SATELIT',
+    'JOB SELLER',
+    'KATEGORI CABANG'
+]
+
+JOB_LIST = (
+    "CREDIT RETENTION OFFICER",
+    "CREDIT MARKETING OFFICER",
+    "CREDIT CHANNELING OFFICER",
+    "RELATIONSHIP OFFICER",
+    "SALES OFFICER",
+    "SPG"
 )
 
-# ==========================================
+
+# =====================================================
 # FUNGSI MEMBACA FILE
-# ==========================================
+# =====================================================
 
 def read_files(uploaded_files):
 
-    data = []
+    semua_data = []
 
     for file in uploaded_files:
 
-        try:
+        nama_file = file.name.lower()
 
-            file_name = file.name.lower()
-
-            if file_name.endswith((".xlsx", ".xls")):
-
-                df_temp = pd.read_excel(
-                    io.BytesIO(file.getvalue()),
-                    sheet_name="MIKRO",
-                    header=None
-                )
-
-            elif file_name.endswith(".csv"):
-
-                try:
-                    df_temp = pd.read_csv(
-                        io.BytesIO(file.getvalue()),
-                        header=None,
-                        sep=None,
-                        engine="python",
-                        encoding="utf-8-sig"
-                    )
-
-                except UnicodeDecodeError:
-                    df_temp = pd.read_csv(
-                        io.BytesIO(file.getvalue()),
-                        header=None,
-                        sep=None,
-                        engine="python",
-                        encoding="latin1"
-                    )
-
-            else:
-                continue
-
-            # Header berada di baris ketiga
-            df_temp = df_temp.iloc[2:].reset_index(drop=True)
-
-            # Baris pertama menjadi header
-            df_temp.columns = df_temp.iloc[0]
-
-            # Menghapus baris header dari isi data
-            df_temp = df_temp.iloc[1:].reset_index(drop=True)
-
-            # Membersihkan spasi nama kolom
-            df_temp.columns = [
-                str(col).strip() if pd.notna(col) else None
-                for col in df_temp.columns
-            ]
-
-            # Menghapus kolom kosong
-            df_temp = df_temp.loc[
-                :, df_temp.columns.notna()
-            ]
-
-            data.append(df_temp)
-
-        except Exception as e:
-
-            st.error(
-                f"Gagal membaca {file.name}: {e}"
+        if nama_file.endswith(('.xlsx', '.xls')):
+            df_temp = pd.read_excel(
+                file,
+                sheet_name='MIKRO',
+                header=None
             )
 
-    if data:
-        return pd.concat(data, ignore_index=True)
+        elif nama_file.endswith('.csv'):
+            df_temp = pd.read_csv(
+                file,
+                header=None
+            )
+
+        else:
+            continue
+
+        # Baris ke-3 menjadi header
+        df_temp = df_temp.iloc[2:, :].reset_index(drop=True)
+
+        df_temp.columns = df_temp.iloc[0]
+
+        # Data dimulai dari baris ke-4
+        df_temp = df_temp.iloc[1:, :].reset_index(drop=True)
+
+        semua_data.append(df_temp)
+
+    # Gabungkan seluruh file
+    if semua_data:
+        df = pd.concat(
+            semua_data,
+            ignore_index=True
+        )
+        return df
 
     return pd.DataFrame()
 
 
-# ==========================================
-# PROSES DATA
-# ==========================================
+# =====================================================
+# FUNGSI PENGOLAHAN DATA
+# =====================================================
+
+def proses_data(df):
+
+    # Ambil kolom yang digunakan
+    df = df[KOLOM].copy()
+
+    # Filter produk
+    df = df[
+        df['NAMA_PRODUK'].isin([
+            "Amandira Mikro",
+            "Asira Mikro"
+        ])
+    ]
+
+    # Pastikan nilai produk numerik
+    df['NILAI_PRODUK'] = pd.to_numeric(
+        df['NILAI_PRODUK'],
+        errors='coerce'
+    )
+
+    # Filter nilai produk lebih dari 75.000
+    df = df[df['NILAI_PRODUK'] > 75000]
+
+    # Filter jabatan seller
+    df = df[
+        df['JOB SELLER']
+        .fillna('')
+        .astype(str)
+        .str.strip()
+        .str.startswith(JOB_LIST)
+    ].reset_index(drop=True)
+
+    # Normalisasi kode
+    df['KODE_CABANG'] = (
+        df['KODE_CABANG']
+        .fillna('')
+        .astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .str.zfill(4)
+    )
+
+    df['KODE SATELIT'] = (
+        df['KODE SATELIT']
+        .fillna('')
+        .astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .str.zfill(4)
+    )
+
+    df['ID_SELLER'] = (
+        df['ID_SELLER']
+        .fillna('')
+        .astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .str.zfill(8)
+    )
+
+    # =================================================
+    # PIVOT / REKAPITULASI
+    # =================================================
+
+    pivot = pd.pivot_table(
+        df,
+        index=[
+            'REGIONAL',
+            'KODE_CABANG',
+            'NAMA_CABANG',
+            'SATELIT',
+            'ID_SELLER',
+            'NAMA_SELLER',
+            'JOB SELLER'
+        ],
+        values='NILAI_PRODUK',
+        aggfunc=['count', 'sum']
+    ).reset_index()
+
+    pivot.columns = [
+        'REGIONAL',
+        'KODE_CABANG',
+        'NAMA_CABANG',
+        'SATELIT',
+        'ID_SELLER',
+        'NAMA_SELLER',
+        'JOB SELLER',
+        'TOTAL_POLIS',
+        'TOTAL_PREMI'
+    ]
+
+    # Normalisasi kembali kode pada pivot
+    pivot['KODE_CABANG'] = (
+        pivot['KODE_CABANG']
+        .fillna('')
+        .astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .str.zfill(4)
+    )
+
+    pivot['ID_SELLER'] = (
+        pivot['ID_SELLER']
+        .fillna('')
+        .astype(str)
+        .str.replace(r'\.0$', '', regex=True)
+        .str.zfill(8)
+    )
+
+    # Perhitungan reward
+    pivot['REWARD'] = pivot['TOTAL_POLIS'] * 10000
+
+    return df, pivot
+
+
+# =====================================================
+# SIDEBAR - UPLOAD FILE
+# =====================================================
+
+st.sidebar.header("📁 Upload Data")
+
+uploaded_files = st.sidebar.file_uploader(
+    "Upload file Excel atau CSV",
+    type=['xlsx', 'xls', 'csv'],
+    accept_multiple_files=True
+)
+
+
+# =====================================================
+# PROSES DASHBOARD
+# =====================================================
 
 if uploaded_files:
 
-    with st.spinner("Sedang memproses data..."):
+    try:
 
-        df = read_files(uploaded_files)
+        with st.spinner("Sedang membaca dan mengolah data..."):
 
-        if not df.empty:
+            df_raw = read_files(uploaded_files)
 
-            # ==================================
-            # KOLOM YANG DIGUNAKAN
-            # ==================================
+            if df_raw.empty:
+                st.warning("Tidak ada data yang berhasil dibaca.")
+                st.stop()
 
-            kolom = [
-                'REGIONAL',
-                'KODE_CABANG',
-                'NAMA_CABANG',
-                'NAMA_PRODUK',
-                'NILAI_PRODUK',
-                'TANGGAL_BAYAR',
-                'ID_SELLER',
-                'NAMA_SELLER',
-                'SATELIT',
-                'KODE SATELIT',
-                'JOB SELLER',
-                'KATEGORI CABANG'
-            ]
+            df, pivot = proses_data(df_raw)
 
-            df = df[kolom].copy()
+        st.sidebar.success(
+            f"{len(uploaded_files)} file berhasil dibaca"
+        )
 
-            # ==================================
-            # KONVERSI TIPE DATA
-            # ==================================
+        # =================================================
+        # FILTER DASHBOARD
+        # =================================================
 
-            df['NILAI_PRODUK'] = pd.to_numeric(
-                df['NILAI_PRODUK'],
-                errors='coerce'
+        st.sidebar.header("🔎 Filter Dashboard")
+
+        regional_list = sorted(
+            df['REGIONAL'].dropna().unique().tolist()
+        )
+
+        regional_pilih = st.sidebar.multiselect(
+            "Pilih Regional",
+            options=regional_list,
+            default=regional_list
+        )
+
+        df_filter = df[
+            df['REGIONAL'].isin(regional_pilih)
+        ]
+
+        cabang_list = sorted(
+            df_filter['NAMA_CABANG'].dropna().unique().tolist()
+        )
+
+        cabang_pilih = st.sidebar.multiselect(
+            "Pilih Cabang",
+            options=cabang_list,
+            default=cabang_list
+        )
+
+        df_filter = df_filter[
+            df_filter['NAMA_CABANG'].isin(cabang_pilih)
+        ]
+
+        produk_list = sorted(
+            df_filter['NAMA_PRODUK'].dropna().unique().tolist()
+        )
+
+        produk_pilih = st.sidebar.multiselect(
+            "Pilih Produk",
+            options=produk_list,
+            default=produk_list
+        )
+
+        df_filter = df_filter[
+            df_filter['NAMA_PRODUK'].isin(produk_pilih)
+        ]
+
+        # Buat pivot berdasarkan hasil filter
+        _, pivot_filter = proses_data(df_filter)
+
+        # =================================================
+        # KPI / METRIK
+        # =================================================
+
+        st.subheader("Ringkasan Kinerja")
+
+        total_polis = len(df_filter)
+
+        total_premi = df_filter['NILAI_PRODUK'].sum()
+
+        total_reward = total_polis * 10000
+
+        total_seller = df_filter['ID_SELLER'].nunique()
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+            "Total Polis",
+            f"{total_polis:,}"
+        )
+
+        col2.metric(
+            "Total Premi",
+            f"Rp {total_premi:,.0f}"
+        )
+
+        col3.metric(
+            "Total Reward",
+            f"Rp {total_reward:,.0f}"
+        )
+
+        col4.metric(
+            "Total Seller",
+            f"{total_seller:,}"
+        )
+
+        st.divider()
+
+        # =================================================
+        # TAB DASHBOARD
+        # =================================================
+
+        tab1, tab2 = st.tabs([
+            "📋 Data Detail",
+            "📊 Rekapitulasi Seller"
+        ])
+
+        # =================================================
+        # TAB 1 - DATA DETAIL
+        # =================================================
+
+        with tab1:
+
+            st.subheader("Data Detail Polis")
+
+            st.write(
+                f"Jumlah data: **{len(df_filter):,} baris**"
             )
 
-            # ==================================
-            # FILTER PRODUK
-            # ==================================
-
-            df = df[
-                df['NAMA_PRODUK'].isin([
-                    "Amandira Mikro",
-                    "Asira Mikro"
-                ])
-            ]
-
-            # Filter nilai produk
-            df = df[
-                df['NILAI_PRODUK'] > 75000
-            ]
-
-            # ==================================
-            # FILTER JOB SELLER
-            # ==================================
-
-            job_list = (
-                "CREDIT RETENTION OFFICER",
-                "CREDIT MARKETING OFFICER",
-                "CREDIT CHANNELING OFFICER",
-                "RELATIONSHIP OFFICER",
-                "SALES OFFICER",
-                "SPG"
+            st.dataframe(
+                df_filter,
+                use_container_width=True,
+                hide_index=True
             )
 
-            df = df[
-                df['JOB SELLER']
-                .fillna('')
-                .astype(str)
-                .str.strip()
-                .str.startswith(job_list)
-            ].reset_index(drop=True)
+            # Download data detail
+            output_detail = io.BytesIO()
 
-            # ==================================
-            # FORMAT KODE
-            # ==================================
+            with pd.ExcelWriter(
+                output_detail,
+                engine='openpyxl'
+            ) as writer:
 
-            df['KODE_CABANG'] = (
-                df['KODE_CABANG']
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0$', '', regex=True)
-                .str.zfill(4)
+                df_filter.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name='Data Detail'
+                )
+
+            st.download_button(
+                label="⬇️ Download Data Detail Excel",
+                data=output_detail.getvalue(),
+                file_name=f"Data_Detail_Mikro_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            df['KODE SATELIT'] = (
-                df['KODE SATELIT']
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0$', '', regex=True)
-                .str.zfill(4)
+        # =================================================
+        # TAB 2 - REKAP SELLER
+        # =================================================
+
+        with tab2:
+
+            st.subheader("Rekapitulasi Seller")
+
+            st.write(
+                f"Jumlah seller: **{len(pivot_filter):,} baris**"
             )
 
-            df['ID_SELLER'] = (
-                df['ID_SELLER']
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0$', '', regex=True)
-                .str.zfill(8)
+            st.dataframe(
+                pivot_filter,
+                use_container_width=True,
+                hide_index=True
             )
 
-            # ==================================
-            # PIVOT TABLE
-            # ==================================
+            # Download rekap
+            output_pivot = io.BytesIO()
 
-            pivot = pd.pivot_table(
-                df,
-                index=[
-                    'REGIONAL',
-                    'KODE_CABANG',
-                    'NAMA_CABANG',
-                    'SATELIT',
-                    'ID_SELLER',
-                    'NAMA_SELLER',
-                    'JOB SELLER'
-                ],
-                values='NILAI_PRODUK',
-                aggfunc={
-                    'NILAI_PRODUK': ['count', 'sum']
-                },
-                fill_value=0
-            ).reset_index()
+            with pd.ExcelWriter(
+                output_pivot,
+                engine='openpyxl'
+            ) as writer:
 
-            pivot.columns = [
-                'REGIONAL',
-                'KODE_CABANG',
-                'NAMA_CABANG',
-                'SATELIT',
-                'ID_SELLER',
-                'NAMA_SELLER',
-                'JOB SELLER',
-                'TOTAL_POLIS',
-                'TOTAL_PREMI'
-            ]
+                pivot_filter.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name='Rekap Seller'
+                )
 
-            # ==================================
-            # FORMAT KODE PIVOT
-            # ==================================
-
-            pivot['KODE_CABANG'] = (
-                pivot['KODE_CABANG']
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0$', '', regex=True)
-                .str.zfill(4)
+            st.download_button(
+                label="⬇️ Download Rekap Seller Excel",
+                data=output_pivot.getvalue(),
+                file_name=f"Rekap_Seller_Mikro_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            pivot['ID_SELLER'] = (
-                pivot['ID_SELLER']
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0$', '', regex=True)
-                .str.zfill(8)
-            )
+    except Exception as e:
 
-            # ==================================
-            # PERHITUNGAN REWARD
-            # ==================================
-
-            pivot['REWARD'] = (
-                pivot['TOTAL_POLIS'] * 10000
-            )
-
-            # ==================================
-            # METRIC DASHBOARD
-            # ==================================
-
-            st.success("Data berhasil diproses!")
-
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                st.metric(
-                    "Total Data",
-                    f"{len(df):,}"
-                )
-
-            with col2:
-                st.metric(
-                    "Total Polis",
-                    f"{pivot['TOTAL_POLIS'].sum():,.0f}"
-                )
-
-            with col3:
-                st.metric(
-                    "Total Premi",
-                    f"Rp {pivot['TOTAL_PREMI'].sum():,.0f}"
-                )
-
-            with col4:
-                st.metric(
-                    "Total Reward",
-                    f"Rp {pivot['REWARD'].sum():,.0f}"
-                )
-
-            st.divider()
-
-            # ==================================
-            # FUNGSI FILTER TABEL
-            # ==================================
-
-            def filter_table(data, key):
-
-                filtered = data.copy()
-
-                st.markdown("#### 🔎 Filter Kolom")
-
-                cols = st.columns(3)
-
-                for i, column in enumerate(data.columns):
-
-                    with cols[i % 3]:
-
-                        if pd.api.types.is_numeric_dtype(
-                            data[column]
-                        ):
-
-                            min_val = (
-                                float(data[column].min())
-                                if not data[column].empty else 0
-                            )
-
-                            max_val = (
-                                float(data[column].max())
-                                if not data[column].empty else 0
-                            )
-
-                            if min_val < max_val:
-
-                                selected = st.slider(
-                                    column,
-                                    min_val,
-                                    max_val,
-                                    (min_val, max_val),
-                                    key=f"{key}_{column}"
-                                )
-
-                                filtered = filtered[
-                                    filtered[column].between(
-                                        selected[0],
-                                        selected[1]
-                                    )
-                                ]
-
-                            else:
-                                st.caption(
-                                    f"{column}: {min_val:,.0f}"
-                                )
-
-                        else:
-
-                            options = sorted(
-                                data[column]
-                                .dropna()
-                                .astype(str)
-                                .unique()
-                                .tolist()
-                            )
-
-                            selected = st.multiselect(
-                                column,
-                                options,
-                                default=options,
-                                key=f"{key}_{column}"
-                            )
-
-                            filtered = filtered[
-                                filtered[column]
-                                .astype(str)
-                                .isin(selected)
-                            ]
-
-                return filtered
-
-            # ==================================
-            # TAB DASHBOARD
-            # ==================================
-
-            tab1, tab2 = st.tabs([
-                "📋 Data Detail",
-                "📊 Hasil Pivot"
-            ])
-
-            # ==================================
-            # TAB 1 - DATA DETAIL
-            # ==================================
-
-            with tab1:
-
-                st.subheader(
-                    "Data Detail Amandira & Asira Mikro"
-                )
-
-                st.write(
-                    f"Total baris: {len(df):,}"
-                )
-
-                filtered_df = filter_table(
-                    df,
-                    "detail"
-                )
-
-                st.dataframe(
-                    filtered_df,
-                    use_container_width=True,
-                    height=550,
-                    hide_index=True
-                )
-
-                st.caption(
-                    f"Menampilkan {len(filtered_df):,} dari "
-                    f"{len(df):,} baris"
-                )
-
-                # Download data detail
-                output_detail = io.BytesIO()
-
-                with pd.ExcelWriter(
-                    output_detail,
-                    engine='openpyxl'
-                ) as writer:
-
-                    filtered_df.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name='DATA_DETAIL'
-                    )
-
-                st.download_button(
-                    "⬇️ Download Data Detail",
-                    data=output_detail.getvalue(),
-                    file_name="data_detail.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-            # ==================================
-            # TAB 2 - PIVOT
-            # ==================================
-
-            with tab2:
-
-                st.subheader(
-                    "Hasil Pivot per Seller"
-                )
-
-                st.write(
-                    f"Total seller: {len(pivot):,}"
-                )
-
-                filtered_pivot = filter_table(
-                    pivot,
-                    "pivot"
-                )
-
-                st.dataframe(
-                    filtered_pivot,
-                    use_container_width=True,
-                    height=550,
-                    hide_index=True
-                )
-
-                st.caption(
-                    f"Menampilkan {len(filtered_pivot):,} dari "
-                    f"{len(pivot):,} baris"
-                )
-
-                # Download pivot
-                output_pivot = io.BytesIO()
-
-                with pd.ExcelWriter(
-                    output_pivot,
-                    engine='openpyxl'
-                ) as writer:
-
-                    filtered_pivot.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name='PIVOT'
-                    )
-
-                st.download_button(
-                    "⬇️ Download Hasil Pivot",
-                    data=output_pivot.getvalue(),
-                    file_name="hasil_pivot.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-                # ==================================
-                # DOWNLOAD SEMUA DATA
-                # ==================================
-
-                output_all = io.BytesIO()
-
-                with pd.ExcelWriter(
-                    output_all,
-                    engine='openpyxl'
-                ) as writer:
-
-                    df.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name='DATA_DETAIL'
-                    )
-
-                    pivot.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name='PIVOT'
-                    )
-
-                st.divider()
-
-                today = pd.Timestamp.today()
-
-                yesterday = today - pd.Timedelta(days=1)
-
-                nama_file = (
-                    "Report Tangkap Gurame 01 - "
-                    f"{yesterday.strftime('%d %B %Y')}.xlsx"
-                )
-
-                st.download_button(
-                    "⬇️ Download Semua Data (Excel)",
-                    data=output_all.getvalue(),
-                    file_name=nama_file,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
-                )
-
-        else:
-
-            st.warning(
-                "Tidak ada data yang berhasil dibaca."
-            )
+        st.error(f"Terjadi kesalahan saat memproses data: {e}")
 
 else:
 
     st.info(
-        "Silakan upload file Excel atau CSV melalui sidebar untuk memulai."
+        "Silakan upload file Excel atau CSV melalui menu di sebelah kiri."
     )
+
+    st.markdown("""
+    ### Panduan Upload
+    1. Upload satu atau beberapa file sekaligus.
+    2. File Excel harus memiliki sheet bernama `MIKRO`.
+    3. Baris ke-3 digunakan sebagai header.
+    4. Data dimulai dari baris ke-4.
+    5. Dashboard akan menggabungkan seluruh file yang di-upload.
+    """)
