@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import io
+from datetime import datetime, timedelta
 
 # ==========================================
 # KONFIGURASI HALAMAN
@@ -17,7 +18,7 @@ st.title("📊 Dashboard Monitoring Produk Mikro")
 st.caption("Data Amandira Mikro dan Asira Mikro")
 
 # ==========================================
-# SIDEBAR
+# SIDEBAR - UPLOAD DATA
 # ==========================================
 
 st.sidebar.header("Upload Data")
@@ -40,7 +41,9 @@ def read_files(uploaded_files):
 
         try:
 
-            if file.name.endswith((".xlsx", ".xls")):
+            file_name = file.name.lower()
+
+            if file_name.endswith((".xlsx", ".xls")):
 
                 df_temp = pd.read_excel(
                     io.BytesIO(file.getvalue()),
@@ -48,17 +51,30 @@ def read_files(uploaded_files):
                     header=None
                 )
 
-            elif file.name.endswith(".csv"):
+            elif file_name.endswith(".csv"):
 
-                df_temp = pd.read_csv(
-                    io.BytesIO(file.getvalue()),
-                    header=None
-                )
+                try:
+                    df_temp = pd.read_csv(
+                        io.BytesIO(file.getvalue()),
+                        header=None,
+                        sep=None,
+                        engine="python",
+                        encoding="utf-8-sig"
+                    )
+
+                except UnicodeDecodeError:
+                    df_temp = pd.read_csv(
+                        io.BytesIO(file.getvalue()),
+                        header=None,
+                        sep=None,
+                        engine="python",
+                        encoding="latin1"
+                    )
 
             else:
                 continue
 
-            # Mengambil header dari baris ketiga
+            # Header berada di baris ketiga
             df_temp = df_temp.iloc[2:].reset_index(drop=True)
 
             # Baris pertama menjadi header
@@ -67,7 +83,13 @@ def read_files(uploaded_files):
             # Menghapus baris header dari isi data
             df_temp = df_temp.iloc[1:].reset_index(drop=True)
 
-            # Menghapus kolom dengan nama kosong
+            # Membersihkan spasi nama kolom
+            df_temp.columns = [
+                str(col).strip() if pd.notna(col) else None
+                for col in df_temp.columns
+            ]
+
+            # Menghapus kolom kosong
             df_temp = df_temp.loc[
                 :, df_temp.columns.notna()
             ]
@@ -98,6 +120,10 @@ if uploaded_files:
 
         if not df.empty:
 
+            # ==================================
+            # KOLOM YANG DIGUNAKAN
+            # ==================================
+
             kolom = [
                 'REGIONAL',
                 'KODE_CABANG',
@@ -112,19 +138,6 @@ if uploaded_files:
                 'JOB SELLER',
                 'KATEGORI CABANG'
             ]
-
-            # Validasi kolom
-            missing = [
-                col for col in kolom
-                if col not in df.columns
-            ]
-
-            if missing:
-
-                st.error(
-                    f"Kolom tidak ditemukan: {missing}"
-                )
-                st.stop()
 
             df = df[kolom].copy()
 
@@ -236,10 +249,15 @@ if uploaded_files:
                 'TOTAL_PREMI'
             ]
 
+            # ==================================
+            # FORMAT KODE PIVOT
+            # ==================================
+
             pivot['KODE_CABANG'] = (
                 pivot['KODE_CABANG']
                 .fillna('')
                 .astype(str)
+                .str.replace(r'\.0$', '', regex=True)
                 .str.zfill(4)
             )
 
@@ -247,8 +265,13 @@ if uploaded_files:
                 pivot['ID_SELLER']
                 .fillna('')
                 .astype(str)
+                .str.replace(r'\.0$', '', regex=True)
                 .str.zfill(8)
             )
+
+            # ==================================
+            # PERHITUNGAN REWARD
+            # ==================================
 
             pivot['REWARD'] = (
                 pivot['TOTAL_POLIS'] * 10000
@@ -271,7 +294,7 @@ if uploaded_files:
             with col2:
                 st.metric(
                     "Total Polis",
-                    f"{pivot['TOTAL_POLIS'].sum():,}"
+                    f"{pivot['TOTAL_POLIS'].sum():,.0f}"
                 )
 
             with col3:
@@ -304,19 +327,19 @@ if uploaded_files:
 
                     with cols[i % 3]:
 
-                        if (
-                            pd.api.types.is_numeric_dtype(
-                                data[column]
-                            )
+                        if pd.api.types.is_numeric_dtype(
+                            data[column]
                         ):
 
-                            min_val = float(
-                                data[column].min()
-                            ) if not data[column].empty else 0
+                            min_val = (
+                                float(data[column].min())
+                                if not data[column].empty else 0
+                            )
 
-                            max_val = float(
-                                data[column].max()
-                            ) if not data[column].empty else 0
+                            max_val = (
+                                float(data[column].max())
+                                if not data[column].empty else 0
+                            )
 
                             if min_val < max_val:
 
@@ -375,7 +398,7 @@ if uploaded_files:
             ])
 
             # ==================================
-            # TAB 1 DATA DETAIL
+            # TAB 1 - DATA DETAIL
             # ==================================
 
             with tab1:
@@ -427,7 +450,7 @@ if uploaded_files:
                 )
 
             # ==================================
-            # TAB 2 PIVOT
+            # TAB 2 - PIVOT
             # ==================================
 
             with tab2:
@@ -478,7 +501,10 @@ if uploaded_files:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-                # Download gabungan
+                # ==================================
+                # DOWNLOAD SEMUA DATA
+                # ==================================
+
                 output_all = io.BytesIO()
 
                 with pd.ExcelWriter(
@@ -500,10 +526,19 @@ if uploaded_files:
 
                 st.divider()
 
+                today = pd.Timestamp.today()
+
+                yesterday = today - pd.Timedelta(days=1)
+
+                nama_file = (
+                    "Report Tangkap Gurame 01 - "
+                    f"{yesterday.strftime('%d %B %Y')}.xlsx"
+                )
+
                 st.download_button(
                     "⬇️ Download Semua Data (Excel)",
                     data=output_all.getvalue(),
-                    file_name=f"Report Tangkap Gurame 01 - {(today - pd.Timedelta(days=1)).strftime('%d %B %Y')}.xlsx",
+                    file_name=nama_file,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary"
                 )
