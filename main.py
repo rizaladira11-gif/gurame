@@ -51,6 +51,7 @@ JOB_LIST = (
 # FUNGSI MEMBACA FILE
 # =====================================================
 
+
 def read_files(uploaded_files):
 
     semua_data = []
@@ -63,37 +64,38 @@ def read_files(uploaded_files):
             df_temp = pd.read_excel(
                 file,
                 sheet_name='MIKRO',
-                header=None
+                header=2
             )
 
         elif nama_file.endswith('.csv'):
             df_temp = pd.read_csv(
                 file,
-                header=None
+                header=2
             )
 
         else:
             continue
 
-        # Baris ke-3 menjadi header
-        df_temp = df_temp.iloc[2:, :].reset_index(drop=True)
-
-        df_temp.columns = df_temp.iloc[0]
-
-        # Data dimulai dari baris ke-4
-        df_temp = df_temp.iloc[1:, :].reset_index(drop=True)
+        # Rapikan nama kolom
+        df_temp.columns = (
+            df_temp.columns
+            .astype(str)
+            .str.replace('\n', ' ', regex=False)
+            .str.strip()
+        )
 
         semua_data.append(df_temp)
 
-    # Gabungkan seluruh file
     if semua_data:
         df = pd.concat(
             semua_data,
             ignore_index=True
         )
+
         return df
 
     return pd.DataFrame()
+
 
 
 # =====================================================
