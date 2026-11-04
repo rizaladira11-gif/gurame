@@ -136,7 +136,7 @@ def tampilkan_tabel(df: pd.DataFrame):
 
 
 # ---------------------------------------------------------------- UI
-st.title("📊 Report Tangkap Gurame 01")
+st.title("📊 Report Tangkap Gurame")
 
 files = st.file_uploader(
     "Upload file Excel (.xlsx, sheet MIKRO), boleh lebih dari satu",
