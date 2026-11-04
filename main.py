@@ -27,16 +27,15 @@ JOB_LIST = (
     "SPG",
 )
 REWARD_PER_POLIS = 10000
+MAX_BARIS_TAMPIL = 5000
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 # ---------------------------------------------------------------- Proses data
 @st.cache_data(show_spinner=False)
-def proses_file(nama: str, isi: bytes) -> pd.DataFrame:
-    """Baca satu file lalu bersihkan sesuai alur di notebook."""
-    if nama.lower().endswith((".xlsx", ".xls")):
-        df = pd.read_excel(io.BytesIO(isi), sheet_name="MIKRO")
-    else:
-        df = pd.read_csv(io.BytesIO(isi))
+def proses_file(isi: bytes) -> pd.DataFrame:
+    """Baca satu file Excel (sheet MIKRO) lalu bersihkan sesuai alur di notebook."""
+    df = pd.read_excel(io.BytesIO(isi), sheet_name="MIKRO", engine="calamine")
 
     df = df.iloc[2:, :].reset_index(drop=True)
     df.columns = df.iloc[0]
@@ -76,6 +75,7 @@ def buat_pivot(df: pd.DataFrame) -> pd.DataFrame:
     return pivot
 
 
+@st.cache_data(show_spinner=False)
 def ke_excel(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     df.to_excel(buf, index=False)
@@ -129,12 +129,18 @@ def panel_filter(df: pd.DataFrame, kolom_multi: list, kolom_cari: list, key: str
     return df[mask]
 
 
+def tampilkan_tabel(df: pd.DataFrame):
+    st.dataframe(df.head(MAX_BARIS_TAMPIL), use_container_width=True, hide_index=True)
+    if len(df) > MAX_BARIS_TAMPIL:
+        st.caption(f"Menampilkan {MAX_BARIS_TAMPIL:,} dari {len(df):,} baris.")
+
+
 # ---------------------------------------------------------------- UI
 st.title("📊 Report Tangkap Gurame 01")
 
 files = st.file_uploader(
-    "Upload file (Excel sheet MIKRO / CSV), boleh lebih dari satu",
-    type=["xlsx", "xls", "csv"],
+    "Upload file Excel (.xlsx, sheet MIKRO), boleh lebih dari satu",
+    type=["xlsx"],
     accept_multiple_files=True,
 )
 
@@ -143,9 +149,8 @@ if not files:
     st.stop()
 
 try:
-    with st.spinner("Memproses data..."):
-        hasil = [proses_file(f.name, f.getvalue()) for f in files]
-        df = pd.concat(hasil, ignore_index=True)
+    with st.spinner("Membaca dan memproses file..."):
+        df = pd.concat([proses_file(f.getvalue()) for f in files], ignore_index=True)
         pivot = buat_pivot(df)
 except Exception as e:
     st.error(f"Gagal memproses file: {e}")
@@ -165,7 +170,7 @@ df_f = panel_filter(
 c1, c2 = st.columns(2)
 c1.metric("Jumlah baris", f"{len(df_f):,}")
 c2.metric("Total NILAI_PRODUK", f"{df_f['NILAI_PRODUK'].sum():,.0f}")
-st.dataframe(df_f, use_container_width=True, hide_index=True)
+tampilkan_tabel(df_f)
 
 st.divider()
 
@@ -183,19 +188,31 @@ m1.metric("Jumlah seller", f"{len(pivot_f):,}")
 m2.metric("Total polis", f"{pivot_f['TOTAL_POLIS'].sum():,}")
 m3.metric("Total premi", f"{pivot_f['TOTAL_PREMI'].sum():,.0f}")
 m4.metric("Total reward", f"{pivot_f['REWARD'].sum():,.0f}")
-st.dataframe(pivot_f, use_container_width=True, hide_index=True)
+tampilkan_tabel(pivot_f)
 
+# --- Download
 kemarin = datetime.now(ZoneInfo("Asia/Jakarta")).date() - timedelta(days=1)
 nama_file = f"Report Tangkap Gurame 01 - {kemarin.day:02d} {BULAN[kemarin.month]} {kemarin.year}.xlsx"
-mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 d1, d2 = st.columns(2)
+
+# Pivot lengkap: file dibuat sekali lalu di-cache
 d1.download_button(
     "⬇️ Download pivot lengkap (.xlsx)", ke_excel(pivot),
-    file_name=nama_file, mime=mime, use_container_width=True,
+    file_name=nama_file, mime=MIME_XLSX, use_container_width=True,
 )
-d2.download_button(
-    "⬇️ Download pivot hasil filter (.xlsx)", ke_excel(pivot_f),
-    file_name=nama_file.replace(".xlsx", " (filter).xlsx"), mime=mime,
-    use_container_width=True,
-)
+
+# Pivot hasil filter: file hanya dibuat saat tombol "Siapkan" ditekan
+sig = int(pd.util.hash_pandas_object(pivot_f, index=False).sum())
+if d2.button("Siapkan file hasil filter", use_container_width=True):
+    st.session_state["xlsx_filter"] = (sig, ke_excel(pivot_f))
+
+tersimpan = st.session_state.get("xlsx_filter")
+if tersimpan and tersimpan[0] == sig:
+    d2.download_button(
+        "⬇️ Download pivot hasil filter (.xlsx)", tersimpan[1],
+        file_name=nama_file.replace(".xlsx", " (filter).xlsx"), mime=MIME_XLSX,
+        use_container_width=True,
+    )
+elif tersimpan:
+    d2.caption("Filter berubah, tekan \"Siapkan file hasil filter\" lagi.")
